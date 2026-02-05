@@ -6,6 +6,9 @@ python-dotenv
 tavily-python
 fastapi
 uvicorn
-psycopg2-binarybeautifulsoup4
+gunicorn
+psycopg2-binary
+beautifulsoup4
 requests
 duckduckgo-search
+google-generativeai
