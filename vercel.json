@@ -1,0 +1,14 @@
+{
+  "buildCommand": "pip install -r requirements.txt",
+  "framework": "fastapi",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/"
+    }
+  ]
+}
