@@ -1,0 +1,11 @@
+langchain
+langgraph
+langchain-openai
+langchain-google-genai
+python-dotenv
+tavily-python
+fastapi
+uvicorn
+psycopg2-binarybeautifulsoup4
+requests
+duckduckgo-search
