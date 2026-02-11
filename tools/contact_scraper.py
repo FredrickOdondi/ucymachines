@@ -162,16 +162,20 @@ class ContactScraper:
         # Regex for email addresses
         email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
         emails = re.findall(email_pattern, text)
-        
+
         # Filter out common generic emails, images, etc.
         filtered = []
-        exclude_patterns = ['example.com', 'yourdomain', 'yourcompany', '.png', '.jpg', 
-                           'noreply', 'no-reply', 'donotreply']
-        
+        exclude_patterns = ['example.com', 'yourdomain', 'yourcompany', '.png', '.jpg',
+                           'noreply', 'no-reply', 'donotreply', 'test.com', 'testing.',
+                           'localhost', '@example', '@your', 'email@', 'contact@']
+
         for email in emails:
             if not any(pattern in email.lower() for pattern in exclude_patterns):
-                filtered.append(email)
-        
+                # Additional validation: check domain looks real
+                domain = email.split('@')[1] if '@' in email else ''
+                if '.' in domain and len(domain.split('.')) >= 2:
+                    filtered.append(email)
+
         return list(set(filtered))  # Remove duplicates
     
     @staticmethod
@@ -200,16 +204,50 @@ class ContactScraper:
         words = text.split()
         if len(words) < 2 or len(words) > 4:
             return False
-        
+
         # Check if all words are capitalized
         if not all(word[0].isupper() for word in words if word):
             return False
-        
+
         # Check reasonable length
         if len(text) > 50 or len(text) < 5:
             return False
-        
+
         return True
+
+    @staticmethod
+    def _extract_name_from_text(text: str, email: str) -> str:
+        """Try to extract a name associated with an email from text."""
+        # Extract name from email local part
+        local = email.split('@')[0]
+        parts = re.split(r'[._-]', local)
+
+        if len(parts) >= 2:
+            # Try to capitalize like a name
+            name_parts = [part.capitalize() for part in parts if len(part) > 1]
+            if len(name_parts) >= 2:
+                # Look for this name pattern in the text to validate
+                potential_name = ' '.join(name_parts[:2])
+                if potential_name in text:
+                    return potential_name
+
+        # Look for patterns like "Name: <email>" or "<email> - Name"
+        patterns = [
+            r'([A-Z][a-z]+\s+[A-Z][a-z]+).*?' + re.escape(email),
+            re.escape(email) + r'.*?([A-Z][a-z]+\s+[A-Z][a-z]+)'
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                return match.group(1).strip()
+
+        # Fallback to email-based guess
+        if len(parts) >= 2:
+            name_parts = [part.capitalize() for part in parts if len(part) > 1]
+            return ' '.join(name_parts[:2])
+
+        return "Contact"
     
     @staticmethod
     def _guess_name_from_email(email: str) -> str:
@@ -257,125 +295,64 @@ class ContactScraper:
     @staticmethod
     def _generate_inferred_contacts(company_name: str) -> list:
         """
-        Infer company email format from web search results and generate plausible contacts.
-        This is NOT mock data - it's based on real discovery of email patterns.
+        Extract REAL email addresses from web search results - NO fake/generated emails.
+        Only returns emails that actually exist in search results.
         """
         try:
-            print(f"  [ContactScraper] Inferring email format for {company_name}...")
-            
-            # Search for employees with company email addresses
+            print(f"  [ContactScraper] Searching for real email addresses for {company_name}...")
+
+            # Search for company email addresses
             from ddgs import DDGS
-            search_query = f"{company_name} email address @"
-            
-            ddgs = DDGS()
-            results = list(ddgs.text(search_query, max_results=10))
-            
-            # Extract email patterns from search results
-            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-            found_emails = []
-            
-            for result in results:
-                text = result.get('body', '') + ' ' + result.get('title', '')
-                matches = re.findall(email_pattern, text)
-                found_emails.extend(matches)
-            
-            # Filter to company domain
-            company_domain = None
-            email_formats = set()
-            
-            for email in found_emails:
-                domain = email.split('@')[1]
-                # Check if domain looks like it belongs to the company
-                company_keywords = company_name.lower().split()
-                domain_lower = domain.lower()
-                
-                if any(keyword in domain_lower for keyword in company_keywords if len(keyword) > 2):
-                    company_domain = domain
-                    local_part = email.split('@')[0]
-                    email_formats.add(local_part)
-                    break
-            
-            if not company_domain:
-                print(f"  [ContactScraper] Could not infer company domain from search")
-                return []
-            
-            print(f"  [ContactScraper] Inferred domain: {company_domain}")
-            
-            # Analyze email format patterns
-            format_type = ContactScraper._infer_email_format(list(email_formats))
-            print(f"  [ContactScraper] Inferred format: {format_type}")
-            
-            # Generate plausible contacts for key roles using inferred format
-            contacts = []
-            common_roles = [
-                ("John Smith", "CEO"),
-                ("Sarah Johnson", "CFO"),
-                ("Michael Chen", "VP Operations"),
-                ("Diana Wilson", "Operations Director"),
-                ("Robert Brown", "Plant Manager"),
+            search_queries = [
+                f"{company_name} contact email",
+                f"{company_name} @ email",
+                f"site:linkedin.com {company_name} email"
             ]
-            
-            for full_name, role in common_roles:
-                email = ContactScraper._apply_format(full_name, company_domain, format_type)
-                if email:
-                    contacts.append({
-                        'name': full_name,
-                        'email': email,
-                        'role': role,
-                        'source_url': f'inferred from {company_name} email patterns',
-                        'inference_based': True
-                    })
-            
-            print(f"  [ContactScraper] Generated {len(contacts)} inferred contacts")
-            return contacts
-            
+
+            ddgs = DDGS()
+            found_contacts = {}  # Use dict to deduplicate by email
+
+            for search_query in search_queries:
+                try:
+                    results = list(ddgs.text(search_query, max_results=10))
+
+                    # Extract email and name patterns from search results
+                    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+
+                    for result in results:
+                        text = result.get('body', '') + ' ' + result.get('title', '')
+                        emails = re.findall(email_pattern, text)
+
+                        for email in emails:
+                            # Skip generic emails
+                            exclude_patterns = ['info@', 'contact@', 'sales@', 'support@',
+                                              'office@', 'admin@', 'noreply', 'no-reply']
+                            if any(pattern in email.lower() for pattern in exclude_patterns):
+                                continue
+
+                            # Try to find a name associated with this email in the text
+                            name = ContactScraper._extract_name_from_text(text, email)
+
+                            if email not in found_contacts:
+                                found_contacts[email] = {
+                                    'email': email,
+                                    'name': name,
+                                    'role': 'Contact',
+                                    'source_url': result.get('href', ''),
+                                    'inference_based': False
+                                }
+                except:
+                    continue
+
+            contacts = list(found_contacts.values())
+
+            if contacts:
+                print(f"  [ContactScraper] Found {len(contacts)} REAL email addresses from search")
+                return contacts[:5]
+            else:
+                print(f"  [ContactScraper] No real emails found for {company_name}")
+                return []
+
         except Exception as e:
-            print(f"  [ContactScraper] Inference fallback error: {e}")
+            print(f"  [ContactScraper] Search error: {e}")
             return []
-    
-    @staticmethod
-    def _infer_email_format(sample_emails: list) -> str:
-        """
-        Analyze email patterns to determine the format used by the company.
-        Returns a format string like 'firstname.lastname', 'f.lastname', or 'firstname'
-        """
-        if not sample_emails:
-            return 'firstname.lastname'
-        
-        # Analyze patterns in sample emails
-        format_patterns = {}
-        
-        for email in sample_emails[:3]:  # Look at first 3 emails
-            # Count dots, underscores, etc.
-            if '.' in email and '_' not in email:
-                if email.count('.') == 1:
-                    format_patterns['firstname.lastname'] = format_patterns.get('firstname.lastname', 0) + 1
-                elif email.count('.') == 2:
-                    format_patterns['f.lastname'] = format_patterns.get('f.lastname', 0) + 1
-            elif '_' in email:
-                format_patterns['firstname_lastname'] = format_patterns.get('firstname_lastname', 0) + 1
-            elif len(email) < 15:  # Likely just firstname
-                format_patterns['firstname'] = format_patterns.get('firstname', 0) + 1
-        
-        # Return most common format
-        if format_patterns:
-            return max(format_patterns, key=format_patterns.get)
-        return 'firstname.lastname'
-    
-    @staticmethod
-    def _apply_format(full_name: str, domain: str, format_type: str) -> str:
-        """Apply the inferred email format to a name."""
-        parts = full_name.split()
-        firstname = parts[0].lower() if parts else ''
-        lastname = parts[-1].lower() if len(parts) > 1 else ''
-        
-        if format_type == 'firstname.lastname':
-            return f"{firstname}.{lastname}@{domain}"
-        elif format_type == 'f.lastname':
-            return f"{firstname[0]}.{lastname}@{domain}"
-        elif format_type == 'firstname_lastname':
-            return f"{firstname}_{lastname}@{domain}"
-        elif format_type == 'firstname':
-            return f"{firstname}@{domain}"
-        else:
-            return f"{firstname}.{lastname}@{domain}"

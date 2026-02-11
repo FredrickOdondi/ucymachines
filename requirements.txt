@@ -1,14 +1,19 @@
 langchain
-langgraph
+langgraph==0.2.28
 langchain-openai
 langchain-google-genai
 python-dotenv
 tavily-python
 fastapi
 uvicorn
-gunicorn
 psycopg2-binary
 beautifulsoup4
 requests
 duckduckgo-search
-google-generativeai
+google-auth>=2.23.4
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
+google-api-python-client>=2.108.0
+cryptography>=41.0.7
+python-jose[cryptography]>=3.3.0
+# langchain-glm  # Optional: Not compatible with Python 3.12, used for Nick AI only

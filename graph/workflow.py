@@ -5,7 +5,7 @@ from agents.trigger_detector import trigger_detection_node
 from agents.company_qualifier import company_qualification_node
 from agents.decision_maker_finder import decision_maker_discovery_node
 from agents.outreach_composer import personalized_outreach_node
-from agents.linkedin_sender import linkedin_execution_node
+from agents.email_sender import email_execution_node
 from agents.memory_tracker import memory_tracker_node
 
 # --- Conditional Logic ---
@@ -28,10 +28,12 @@ def should_compose_outreach(state: AgentState):
         return "outreach_composer"
     return END
 
-def should_send_linkedin(state: AgentState):
+def should_send_email(state: AgentState):
     content = state.get("outreach_content")
-    if content and content["linkedin_message"]:
-        return "linkedin_sender"
+    contacts = state.get("contacts")
+    # Check if we have content and at least one contact with an email
+    if content and (content.get("email_message") or content.get("linkedin_message")) and contacts and contacts[0].get("email"):
+        return "email_sender"
     return END
 
 # --- Graph Construction ---
@@ -44,7 +46,7 @@ def create_graph():
     workflow.add_node("company_qualifier", company_qualification_node)
     workflow.add_node("decision_maker_finder", decision_maker_discovery_node)
     workflow.add_node("outreach_composer", personalized_outreach_node)
-    workflow.add_node("linkedin_sender", linkedin_execution_node)
+    workflow.add_node("email_sender", email_execution_node)
     workflow.add_node("memory_tracker", memory_tracker_node)
 
     # Add Edges
@@ -79,14 +81,14 @@ def create_graph():
 
     workflow.add_conditional_edges(
         "outreach_composer",
-        should_send_linkedin,
+        should_send_email,
         {
-            "linkedin_sender": "linkedin_sender",
+            "email_sender": "email_sender",
             END: END
         }
     )
 
-    workflow.add_edge("linkedin_sender", "memory_tracker")
+    workflow.add_edge("email_sender", "memory_tracker")
     
     # Add a final saver node or edge logic (Implicit here for simplicity, we'll hook into main/api)
     workflow.add_edge("memory_tracker", END)

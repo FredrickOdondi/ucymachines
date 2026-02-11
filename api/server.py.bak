@@ -1,7 +1,3 @@
-# Load environment variables first
-from dotenv import load_dotenv
-load_dotenv()
-
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
@@ -11,7 +7,7 @@ from api.gmail_auth import get_auth_url, exchange_code_for_tokens, get_credentia
 from api.email_sender import send_email_to_lead, send_test_email, get_email_status
 from api.gmail_sync import sync_incoming_emails, get_sync_status
 from api.auth import get_auth_url as get_login_url, exchange_code_for_token, verify_token
-from api.nick_api import chat_with_nick, ChatRequest, ChatResponse
+# from api.nick_api import chat_with_nick, ChatRequest, ChatResponse  # Temporarily disabled - needs langchain-glm
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import List, Optional
@@ -155,14 +151,6 @@ def update_lead(lead_id: int, request: UpdateLeadRequest):
 
     return updated_lead
 
-@app.delete("/dashboard/leads/{lead_id}")
-def delete_lead(lead_id: int):
-    """Delete a lead by ID."""
-    deleted = SQLiteStore.delete_lead(lead_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Lead not found")
-    return {"success": True, "message": "Lead deleted successfully"}
-
 class MessageRequest(BaseModel):
     content: str
     sender: str = "User" # or "AI"
@@ -258,18 +246,18 @@ def search_linkedin_profiles(request: LinkedInSearchRequest):
     try:
         linkedin = LinkedInScraper()
         
-        # Process all companies
-        companies_to_search = request.companies
-
+        # Limit to first 20 companies to avoid timeouts
+        companies_to_search = request.companies[:20]
+        
         companies_with_profiles = linkedin.find_profiles_batch(
             companies_to_search,
             request.positions,
-            max_companies=len(request.companies),
+            max_companies=20,
             save_to_db=True
         )
-
+        
         total_profiles = sum(c.get("total_profiles", 0) for c in companies_with_profiles)
-
+        
         return {
             "status": "success",
             "companies": companies_with_profiles,
@@ -277,7 +265,7 @@ def search_linkedin_profiles(request: LinkedInSearchRequest):
             "companies_with_profiles": sum(1 for c in companies_with_profiles if c.get("total_profiles", 0) > 0),
             "companies_searched": len(companies_with_profiles),
             "total_companies": len(request.companies),
-            "limited": False,
+            "limited": len(request.companies) > 20,
             "database_stats": SQLiteStore.get_stats()
         }
     except Exception as e:
@@ -305,12 +293,6 @@ def clear_database():
     """Clear all data from database (CAUTION!)."""
     SQLiteStore.clear_all()
     return {"status": "cleared", "message": "All data has been cleared"}
-
-@app.delete("/database/profiles")
-def clear_linkedin_profiles():
-    """Clear all LinkedIn profiles from database."""
-    SQLiteStore.clear_profiles()
-    return {"status": "cleared", "message": "All LinkedIn profiles have been cleared"}
 
 # ============= Gmail Authentication Endpoints =============
 
@@ -449,3 +431,16 @@ def nick_health():
     """Check if Nick AI assistant is running"""
     return {"status": "online", "agent": "Nick", "model": "GLM-4"}
 
+# ============= Nick AI Assistant =============
+# Temporarily disabled - needs langchain-glm installation
+# Uncomment after installing: pip install langchain-glm
+
+# @app.post("/api/nick/chat")
+# async def chat_with_nick_endpoint(request: ChatRequest):
+#     """Chat with Nick AI assistant"""
+#     return await chat_with_nick(request)
+
+# @app.get("/api/nick/health")
+# def nick_health():
+#     """Check if Nick AI assistant is running"""
+#     return {"status": "online", "agent": "Nick", "model": "GLM-4"}

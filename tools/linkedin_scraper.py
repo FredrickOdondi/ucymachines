@@ -232,16 +232,24 @@ class LinkedInScraper:
         # Limit companies to search to avoid excessive processing
         if len(companies) > max_companies:
             companies = companies[:max_companies]
-        
+
         results = []
         for idx, company in enumerate(companies):
             result = self.find_profiles_for_company(company, positions, save_to_db=save_to_db)
             results.append(result)
-            
+
+            # Update progress in database for real-time tracking
+            if save_to_db:
+                try:
+                    from api.sqlite_store import SQLiteStore
+                    SQLiteStore.update_search_progress(idx + 1, len(companies))
+                except Exception as e:
+                    pass  # Silent fail
+
             # Print progress every 5 companies
             if (idx + 1) % 5 == 0:
                 print(f"Processed {idx + 1}/{len(companies)} companies...")
-        
+
         return results
     
     def get_profiles_json(self, data: List[Dict]) -> str:
